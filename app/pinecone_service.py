@@ -4,6 +4,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -38,7 +39,7 @@ def _base_url() -> str:
     ).rstrip("/")
 
 
-def _request_json(method: str, path: str, payload: dict | None = None) -> dict:
+def _request_json(method: str, path: str, payload: Optional[dict] = None) -> dict:
     url = f"{_base_url()}{path}"
     data = None
     headers = {}
