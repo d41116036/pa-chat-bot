@@ -1,3 +1,5 @@
+from typing import Optional
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -8,7 +10,7 @@ class SummarizeRequest(BaseModel):
         max_length=120_000,
         description="Long input text to summarize.",
     )
-    max_words: int | None = Field(
+    max_words: Optional[int] = Field(
         default=150,
         ge=20,
         le=1000,
@@ -36,7 +38,7 @@ class ChatRequest(BaseModel):
         max_length=10_000,
         description="User message for the chatbot.",
     )
-    session_id: str | None = Field(
+    session_id: Optional[str] = Field(
         default=None,
         description="Optional conversation session identifier.",
     )

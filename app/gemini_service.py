@@ -4,6 +4,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -22,7 +23,7 @@ def _load_environment() -> None:
 _load_environment()
 logger = logging.getLogger(__name__)
 
-DEFAULT_GEMINI_APP_BASE_URL = "http://54.204.110.222"
+DEFAULT_GEMINI_APP_BASE_URL = "http://54.204.110.222/gemini"
 
 
 class GoogleAIConfigurationError(Exception):
@@ -62,7 +63,7 @@ def _post_json(path: str, payload: dict) -> dict:
         ) from exc
 
 
-def summarize_text(text: str, max_words: int | None = 150) -> tuple[str, str]:
+def summarize_text(text: str, max_words: Optional[int] = 150) -> tuple[str, str]:
     payload = {"text": text, "max_words": max_words or 150}
     logger.info(
         "before calling gemini api summarize end point payload=%s",

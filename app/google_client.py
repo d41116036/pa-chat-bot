@@ -1,5 +1,7 @@
 """Compatibility wrappers that call gemini-app over HTTP."""
 
+from typing import Optional
+
 from app.gemini_service import (
     GoogleAIConfigurationError,
     GoogleAIServiceError,
@@ -16,14 +18,14 @@ __all__ = [
 ]
 
 
-def summarize_text(text: str, max_words: int | None = 150) -> tuple[str, str]:
+def summarize_text(text: str, max_words: Optional[int] = 150) -> tuple[str, str]:
     return _remote_summarize_text(text, max_words)
 
 
 def generate_chat_reply(
     message: str,
-    history: list[dict] | None = None,
-    context: str | None = None,
+    history: Optional[list] = None,
+    context: Optional[str] = None,
 ) -> tuple[str, str]:
     history_lines: list[str] = []
     for turn in history or []:
