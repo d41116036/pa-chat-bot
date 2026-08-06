@@ -30,6 +30,6 @@ def startup_event() -> None:
         raise
 
 
-@app.get("/health")
+@app.get("/chatbot/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
