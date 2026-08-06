@@ -19,7 +19,7 @@ from app.pinecone_service import (
 )
 from app.text_utils import is_small_talk
 
-router = APIRouter()
+router = APIRouter(prefix="/chatbot")
 logger = logging.getLogger(__name__)
 
 
