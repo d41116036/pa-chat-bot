@@ -1,22 +1,19 @@
+import asyncio
 import logging
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.agent import AgentError, run_tool_agent
 from app.db import DatabaseServiceError, get_chat_history, save_chat_message
-from app.models import ChatRequest, ChatResponse, SummarizeRequest, SummarizeResponse
 from app.google_client import (
     GoogleAIConfigurationError,
     GoogleAIServiceError,
-    choose_namespace,
-    generate_chat_reply,
+    generate_chat_reply_async,
     summarize_text,
 )
-from app.pinecone_service import (
-    PineconeAppServiceError,
-    retrieve_documents,
-    retrieve_namespaces,
-)
+from app.models import ChatRequest, ChatResponse, SummarizeRequest, SummarizeResponse
+from app.tool_registry import ToolExecutionError
 from app.text_utils import is_small_talk
 
 router = APIRouter(prefix="/chatbot")
@@ -53,7 +50,7 @@ def summarize(payload: SummarizeRequest) -> SummarizeResponse:
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(payload: ChatRequest) -> ChatResponse:
+async def chat(payload: ChatRequest) -> ChatResponse:
     session_id = payload.session_id or str(uuid4())
     logger.debug(
         "Received chat request payload: session_id=%s message=%s",
@@ -62,52 +59,40 @@ def chat(payload: ChatRequest) -> ChatResponse:
     )
 
     try:
-        history = get_chat_history(session_id=session_id, limit=20)
-        save_chat_message(session_id=session_id, role="user", content=payload.message)
+        history = await asyncio.to_thread(
+            get_chat_history, session_id=session_id, limit=20
+        )
+        await asyncio.to_thread(
+            save_chat_message,
+            session_id=session_id,
+            role="user",
+            content=payload.message,
+        )
 
         if is_small_talk(payload.message):
             logger.info(
-                "Small-talk message detected; skipping Pinecone retrieval: session_id=%s",
+                "Small-talk message detected; skipping tool agent: session_id=%s",
                 session_id,
             )
-            reply, model = generate_chat_reply(payload.message, history=history)
-            save_chat_message(session_id=session_id, role="assistant", content=reply)
+            reply, model = await generate_chat_reply_async(
+                payload.message, history=history
+            )
+            await asyncio.to_thread(
+                save_chat_message,
+                session_id=session_id,
+                role="assistant",
+                content=reply,
+            )
             return ChatResponse(reply=reply, model=model, session_id=session_id)
 
-        namespaces = retrieve_namespaces()
-        if not namespaces:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No Pinecone namespaces found. Upload a PDF first.",
-            )
-
-        selected_namespace = choose_namespace(payload.message, namespaces)
-        logger.info(
-            "Chat namespace selected: session_id=%s namespace=%s options=%s",
-            session_id,
-            selected_namespace,
-            namespaces,
+        logger.info("Starting async MCP tool agent for session_id=%s", session_id)
+        reply, model = await run_tool_agent(payload.message, history=history)
+        await asyncio.to_thread(
+            save_chat_message,
+            session_id=session_id,
+            role="assistant",
+            content=reply,
         )
-
-        context_parts = retrieve_documents(
-            payload.message,
-            selected_namespace,
-            top_k=3,
-        )
-        context = "\n\n".join(context_parts)
-        logger.info(
-            "Retrieved %s context chunks for session_id=%s namespace=%s",
-            len(context_parts),
-            session_id,
-            selected_namespace,
-        )
-
-        reply, model = generate_chat_reply(
-            payload.message,
-            history=history,
-            context=context,
-        )
-        save_chat_message(session_id=session_id, role="assistant", content=reply)
     except HTTPException:
         raise
     except DatabaseServiceError as exc:
@@ -120,7 +105,7 @@ def chat(payload: ChatRequest) -> ChatResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
-    except (GoogleAIServiceError, PineconeAppServiceError) as exc:
+    except (AgentError, ToolExecutionError, GoogleAIServiceError) as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
@@ -128,7 +113,7 @@ def chat(payload: ChatRequest) -> ChatResponse:
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Pinecone/chat routing failed: {exc}",
+            detail="Tool agent chat failed: {}".format(exc),
         ) from exc
 
     return ChatResponse(reply=reply, model=model, session_id=session_id)
