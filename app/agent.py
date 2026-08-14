@@ -70,18 +70,21 @@ def _build_decision_prompt(
             'Return ONLY JSON: {"action":"final","reply":"<your answer>"}'
         )
     else:
+        tool_names_line = ", ".join(tool_names) if tool_names else "(none)"
         instruction = (
             "Decide the next step. Return ONLY one JSON object, no other text.\n"
             "If you need data, call exactly one available tool:\n"
             '  {"action":"tool","name":"<tool_name>","args":{...}}\n'
             "When you can answer the user, return:\n"
             '  {"action":"final","reply":"<your answer>"}\n'
-            "Available tool names: {}\n"
+            "Available tool names: "
+            + tool_names_line
+            + "\n"
             "Typical flow for factual questions: list_namespaces first, then "
             "retrieve_documents with the best namespace, then final.\n"
             "Prefer retrieved documents when answering. If documents do not contain "
             "the answer, say you do not know based on the available notes."
-        ).format(", ".join(tool_names) if tool_names else "(none)")
+        )
 
     return (
         "You are a helpful assistant with tools.\n\n"
