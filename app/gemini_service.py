@@ -106,31 +106,58 @@ async def generate_chat_reply_async(prompt: str) -> Tuple[str, str]:
     payload = {"prompt": prompt}
     url = "{}/gemini/chat".format(_base_url())
     logger.info(
-        "before calling gemini api chat end point (async) payload=%s",
-        payload,
+        "Gemini async chat request url=%s prompt_length=%d preview=%r",
+        url,
+        len(prompt),
+        prompt[:200],
     )
+    logger.debug("Gemini async chat full prompt:\n%s", prompt)
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(url, json=payload)
+            logger.info(
+                "Gemini async chat HTTP response url=%s status_code=%s",
+                url,
+                response.status_code,
+            )
             body = response.json()
             if response.status_code >= 500 and "not set" in str(body).lower():
                 raise GoogleAIConfigurationError(str(body))
             if response.status_code >= 400:
+                logger.error(
+                    "Gemini async chat HTTP error url=%s status_code=%s body=%s",
+                    url,
+                    response.status_code,
+                    body,
+                )
                 raise GoogleAIServiceError(
                     "gemini-app request failed ({}) at {}: {}".format(
                         response.status_code, url, body
                     )
                 )
     except httpx.HTTPError as exc:
+        logger.exception(
+            "Gemini async chat transport error url=%s error=%s",
+            url,
+            exc,
+        )
         raise GoogleAIServiceError(
             "gemini-app unreachable at {}: {}".format(url, exc)
         ) from exc
-    logger.info(
-        "after receiving response from gemini api chat end point (async) response=%s",
-        body,
-    )
     reply = (body.get("reply") or "").strip()
     model = body.get("model") or ""
+    logger.info(
+        "Gemini async chat success url=%s model=%r reply_length=%d preview=%r",
+        url,
+        model,
+        len(reply),
+        reply[:200],
+    )
     if not reply:
+        logger.error(
+            "Gemini async chat returned empty reply url=%s body=%s",
+            url,
+            body,
+        )
         raise GoogleAIServiceError("gemini-app returned an empty chat reply.")
     return reply, model
