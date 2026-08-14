@@ -3,3 +3,5 @@ pydantic
 psycopg[binary]
 python-dotenv
 uvicorn
+httpx
+mcp>=2.0.0

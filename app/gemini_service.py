@@ -4,8 +4,9 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 
+import httpx
 from dotenv import load_dotenv
 
 
@@ -81,7 +82,7 @@ def summarize_text(text: str, max_words: Optional[int] = 150) -> tuple[str, str]
     return summary, model
 
 
-def generate_chat_reply(prompt: str) -> tuple[str, str]:
+def generate_chat_reply(prompt: str) -> Tuple[str, str]:
     payload = {"prompt": prompt}
     logger.info(
         "before calling gemini api chat end point payload=%s",
@@ -90,6 +91,42 @@ def generate_chat_reply(prompt: str) -> tuple[str, str]:
     body = _post_json("/gemini/chat", payload)
     logger.info(
         "after receiving response from gemini api chat end point response=%s",
+        body,
+    )
+    reply = (body.get("reply") or "").strip()
+    model = body.get("model") or ""
+    if not reply:
+        raise GoogleAIServiceError("gemini-app returned an empty chat reply.")
+    return reply, model
+
+
+async def generate_chat_reply_async(prompt: str) -> Tuple[str, str]:
+    if not prompt or not prompt.strip():
+        raise GoogleAIConfigurationError("prompt must not be blank.")
+    payload = {"prompt": prompt}
+    url = "{}/gemini/chat".format(_base_url())
+    logger.info(
+        "before calling gemini api chat end point (async) payload=%s",
+        payload,
+    )
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(url, json=payload)
+            body = response.json()
+            if response.status_code >= 500 and "not set" in str(body).lower():
+                raise GoogleAIConfigurationError(str(body))
+            if response.status_code >= 400:
+                raise GoogleAIServiceError(
+                    "gemini-app request failed ({}) at {}: {}".format(
+                        response.status_code, url, body
+                    )
+                )
+    except httpx.HTTPError as exc:
+        raise GoogleAIServiceError(
+            "gemini-app unreachable at {}: {}".format(url, exc)
+        ) from exc
+    logger.info(
+        "after receiving response from gemini api chat end point (async) response=%s",
         body,
     )
     reply = (body.get("reply") or "").strip()
