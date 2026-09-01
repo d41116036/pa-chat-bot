@@ -1,0 +1,14 @@
+[
+  {
+    "input": "what are the four types of savings accounts",
+    "expected_output": "Premier Saver, Student Saver, Senior Saver, Horizon Saver"
+  },
+  {
+    "input": "what is the fee for an overdrawn account",
+    "expected_output": " An approved transaction that overdraws an account can incur a 30 FCU fee, capped at three such fees per day."
+  },
+  {
+    "input": "How many years of experience does Arun have?",
+    "expected_output": "Arun has about 8 years of professional experience."
+  }
+]

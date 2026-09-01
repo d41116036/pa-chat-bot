@@ -1,0 +1,6 @@
+# Installs app deps (including mcp) plus DeepEval tooling.
+-r requirements.txt
+deepeval
+pytest
+pytest-asyncio
+google-genai

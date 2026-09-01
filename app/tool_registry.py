@@ -115,6 +115,9 @@ async def list_tool_definitions() -> List[Dict[str, Any]]:
 
 def _result_payload(result: Any) -> Any:
     structured = getattr(result, "structured_content", None)
+    if isinstance(structured, dict) and "result" in structured:
+        # Prefer the tool's returned value, not the wrapper object.
+        return structured.get("result")
     if structured is not None:
         return structured
     texts: List[str] = []

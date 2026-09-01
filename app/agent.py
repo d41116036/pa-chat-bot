@@ -16,6 +16,19 @@ logger = logging.getLogger(__name__)
 
 MAX_AGENT_STEPS = 5
 
+JSON_ONLY_RULE = (
+    "CRITICAL OUTPUT RULES (must follow exactly):\n"
+    "1. Your entire reply MUST be a single JSON object. Nothing else.\n"
+    "2. Do NOT write markdown, headings, bullet lists, or plain-English answers outside JSON.\n"
+    "3. Do NOT wrap the JSON in ``` fences.\n"
+    "4. The JSON MUST use key \"action\" with value \"tool\" or \"final\" only.\n"
+    "5. If you are ready to answer the user, you MUST still use JSON:\n"
+    '   {"action":"final","reply":"<full answer text here>"}\n'
+    "   Put the full user-facing answer inside the \"reply\" string — never as raw text.\n"
+    "6. If you need a tool, use only:\n"
+    '   {"action":"tool","name":"<tool_name>","args":{...}}'
+)
+
 
 class AgentError(Exception):
     """Raised when the agent cannot produce a valid final reply."""
@@ -66,34 +79,48 @@ def _build_decision_prompt(
 
     if force_final:
         instruction = (
-            "You MUST respond with a final answer now using the tool results below. "
-            'Return ONLY JSON: {"action":"final","reply":"<your answer>"}'
+            "You MUST give the final answer now using the tool results below.\n"
+            "Output MUST be exactly this JSON shape (fill in reply):\n"
+            '{"action":"final","reply":"<your complete answer for the user>"}'
         )
     else:
         tool_names_line = ", ".join(tool_names) if tool_names else "(none)"
         instruction = (
-            "Decide the next step. Return ONLY one JSON object, no other text.\n"
-            "If you need data, call exactly one available tool:\n"
-            '  {"action":"tool","name":"<tool_name>","args":{...}}\n'
-            "When you can answer the user, return:\n"
-            '  {"action":"final","reply":"<your answer>"}\n'
+            "Decide the next step.\n"
+            "If you need data, call exactly one available tool with:\n"
+            '{"action":"tool","name":"<tool_name>","args":{...}}\n'
+            "When you can answer the user, you MUST use:\n"
+            '{"action":"final","reply":"<your complete answer for the user>"}\n'
+            "Never answer the user in plain text. Plain text is invalid.\n"
             "Available tool names: "
             + tool_names_line
             + "\n"
             "Typical flow for factual questions: list_namespaces first, then "
             "retrieve_documents with the best namespace, then final.\n"
             "Prefer retrieved documents when answering. If documents do not contain "
-            "the answer, say you do not know based on the available notes."
+            "the answer, say you do not know based on the available notes "
+            '(still inside {"action":"final","reply":"..."}).'
         )
 
     return (
+        "{}\n\n"
         "You are a helpful assistant with tools.\n\n"
         "{}\n\n"
         "Available tools:\n{}\n\n"
         "Tool results so far this turn:\n{}\n\n"
         "Conversation history:\n{}\n\n"
-        "User message:\n{}"
-    ).format(instruction, tools_json, results_json, history_block, message)
+        "User message:\n{}\n\n"
+        "{}\n"
+        "Begin your reply with {{ and end with }}. JSON only."
+    ).format(
+        JSON_ONLY_RULE,
+        instruction,
+        tools_json,
+        results_json,
+        history_block,
+        message,
+        JSON_ONLY_RULE,
+    )
 
 
 async def _ask_for_action(
@@ -138,11 +165,16 @@ async def _ask_for_action(
             raw[:300],
         )
         repair_prompt = (
-            "Your previous reply was not valid JSON.\n"
+            "{}\n\n"
+            "Your previous reply was INVALID because it was not agent JSON.\n"
             "Previous reply:\n{}\n\n"
-            "Return ONLY a valid JSON object for the next action "
-            "(tool or final), no markdown."
-        ).format(raw)
+            "Fix it now. Output ONLY one JSON object:\n"
+            'Tool: {{"action":"tool","name":"<tool_name>","args":{{}}}}\n'
+            'Final: {{"action":"final","reply":"<full answer>"}}\n'
+            "If the previous reply was already the user answer, wrap that full text in "
+            '{{"action":"final","reply":"<paste previous reply here>"}}.\n'
+            "JSON only. Start with {{ and end with }}."
+        ).format(JSON_ONLY_RULE, raw)
         raw2, model = await generate_chat_reply_async(repair_prompt)
         logger.info(
             "Agent Gemini repair reply step=%d model=%r reply_length=%d preview=%r",
@@ -171,8 +203,10 @@ async def _ask_for_action(
 async def run_tool_agent(
     message: str,
     history: Optional[List[Dict[str, Any]]] = None,
+    *,
+    return_tool_results: bool = False,
 ) -> Tuple[str, str]:
-    """Run the async tool-selection loop and return (reply, model)."""
+    """Run tool loop; optionally also return tool_results for DeepEval."""
     logger.info(
         "Agent run_tool_agent starting message=%r history_turns=%d",
         message,
@@ -226,6 +260,12 @@ async def run_tool_agent(
                 model,
                 len(reply),
             )
+            if return_tool_results:
+                logger.info(
+                    "Agent eval return includes tool_results count=%d",
+                    len(tool_results),
+                )
+                return reply, model, tool_results
             return reply, model
 
         if action_type == "tool":
@@ -285,3 +325,15 @@ async def run_tool_agent(
 
     logger.error("Agent loop exited without final reply tool_results=%s", tool_results)
     raise AgentError("Agent loop ended without a final reply.")
+
+
+async def run_tool_agent_for_eval(
+    message: str,
+    history: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[str, str, List[Dict[str, Any]]]:
+    """Like run_tool_agent, plus tool_results for DeepEval retrieval_context."""
+    return await run_tool_agent(
+        message,
+        history=history,
+        return_tool_results=True,
+    )
